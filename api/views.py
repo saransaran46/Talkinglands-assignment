@@ -1,11 +1,11 @@
 from django.shortcuts import get_object_or_404
-from django.http import JsonResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import SpatialPoint, SpatialPolygon
 from django.contrib.gis.geos import Point, Polygon
 import json
+
 
 class PointListCreateView(APIView):
     """
@@ -19,25 +19,24 @@ class PointListCreateView(APIView):
 
     def post(self, request):
         try:
-            if request.content_type == 'application/json':
-                data = request.data
-            elif request.content_type in ['application/x-www-form-urlencoded', 'multipart/form-data']:
-                data = request.POST
-            else:
-                return Response({"error": "Unsupported content type"}, status=status.HTTP_400_BAD_REQUEST)
-
+            data = request.data if request.content_type == 'application/json' else request.POST
             name = data.get("name")
             coordinates = data.get("longlat")
 
             if not name or not coordinates:
-                return Response({"error": "Name and longlatare required"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Name and longlat are required"}, status=status.HTTP_400_BAD_REQUEST)
 
-            point = SpatialPoint.objects.create(name=name, location=Point(coordinates))
+            coordinates = json.loads(coordinates) if isinstance(coordinates, str) else coordinates
+
+            if not isinstance(coordinates, list) or len(coordinates) != 2:
+                return Response({"error": "Invalid longlat format, expected [longitude, latitude]"}, status=status.HTTP_400_BAD_REQUEST)
+
+            point = SpatialPoint.objects.create(name=name, location=Point(*coordinates))
             return Response({"id": point.id, "name": point.name, "location": point.location.coords}, status=status.HTTP_201_CREATED)
-        
+
         except Exception as e:
-            print(e,'error')
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class PointRetrieveUpdateDeleteView(APIView):
     """
@@ -51,16 +50,20 @@ class PointRetrieveUpdateDeleteView(APIView):
     def put(self, request, pk):
         point = get_object_or_404(SpatialPoint, pk=pk)
         try:
-            data = json.loads(request.body)
+            data = request.data if request.content_type == 'application/json' else request.POST
             name = data.get("name", point.name)
             coordinates = data.get("longlat")
 
             if coordinates:
-                point.location = Point(coordinates)
+                coordinates = json.loads(coordinates) if isinstance(coordinates, str) else coordinates
+                if not isinstance(coordinates, list) or len(coordinates) != 2:
+                    return Response({"error": "Invalid longlat format, expected [longitude, latitude]"}, status=status.HTTP_400_BAD_REQUEST)
+                point.location = Point(*coordinates)
+
             point.name = name
             point.save()
-            
-            return Response({"id": point.id, "name": point.name, "location": point.location.coords}, status=status.HTTP_200_OK)
+            return Response({"message":F"id --> {point.id} Updated Successfully","id": point.id, "name": point.name, "location": point.location.coords}, status=status.HTTP_200_OK)
+
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -68,6 +71,7 @@ class PointRetrieveUpdateDeleteView(APIView):
         point = get_object_or_404(SpatialPoint, pk=pk)
         point.delete()
         return Response({"message": "Point deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+
 
 class PolygonListCreateView(APIView):
     """
@@ -81,26 +85,21 @@ class PolygonListCreateView(APIView):
 
     def post(self, request):
         try:
-            if request.content_type == 'application/json':
-                data = request.data
-            elif request.content_type in ['application/x-www-form-urlencoded', 'multipart/form-data']:
-                data = request.POST
-            else:
-                return Response({"error": "Unsupported content type"}, status=status.HTTP_400_BAD_REQUEST)
-
-            
-
+            data = request.data if request.content_type == 'application/json' else request.POST
             name = data.get("name")
-            coordinates = data.get("area")  # Expected format: [[[lon, lat], [lon, lat], ...]]
+            coordinates = data.get("area")
 
             if not name or not coordinates:
                 return Response({"error": "Name and area are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            coordinates = json.loads(coordinates) if isinstance(coordinates, str) else coordinates
 
             polygon = SpatialPolygon.objects.create(name=name, area=Polygon(coordinates))
             return Response({"id": polygon.id, "name": polygon.name, "area": polygon.area.coords}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class PolygonRetrieveUpdateDeleteView(APIView):
     """
@@ -114,16 +113,18 @@ class PolygonRetrieveUpdateDeleteView(APIView):
     def put(self, request, pk):
         polygon = get_object_or_404(SpatialPolygon, pk=pk)
         try:
-            data = json.loads(request.body)
+            data = request.data if request.content_type == 'application/json' else request.POST
             name = data.get("name", polygon.name)
             coordinates = data.get("area")
 
             if coordinates:
+                coordinates = json.loads(coordinates) if isinstance(coordinates, str) else coordinates
                 polygon.area = Polygon(coordinates)
+
             polygon.name = name
             polygon.save()
+            return Response({"message":f"id --> {polygon.id} Updated Successfully","id": polygon.id, "name": polygon.name, "area": polygon.area.coords}, status=status.HTTP_200_OK)
 
-            return Response({"id": polygon.id, "name": polygon.name, "area": polygon.area.coords}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
